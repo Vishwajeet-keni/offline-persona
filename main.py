@@ -1,5 +1,6 @@
 from character import create_character, load_character, list_characters
 from chat import chat, build_history
+from storage import save_history, select_history
 
 def select_character():
     characters = list_characters()
@@ -39,11 +40,13 @@ def main():
     print("Type 'quit' to exit\n")
     print("-" * 40)
 
-    history = []
+    # load previous history or start fresh
+    history = select_history(character['name']) or []
 
     while True:
         user_input = input("You: ")
         if user_input.lower() == "quit":
+            save_history(character['name'], history)
             print("Goodbye!")
             break
 
