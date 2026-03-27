@@ -92,8 +92,9 @@ class MainWindow(QMainWindow):
         self.mic_btn = QPushButton("🎤")
         self.mic_btn.setObjectName("micButton")
         self.mic_btn.setFixedSize(44, 44)
-        self.mic_btn.setToolTip("Hold to speak (coming soon)")
-
+        self.mic_btn.setToolTip("Hold to speak")
+        self.mic_btn.pressed.connect(self._start_recording)
+        self.mic_btn.released.connect(self._stop_recording)
         self.input_box = InputBox()
         self.input_box.setObjectName("inputBox")
         self.input_box.setFixedHeight(44)
@@ -113,10 +114,10 @@ class MainWindow(QMainWindow):
     def _inject_system_prompt(self):
         if not any(m["role"] == "system" for m in self.history):
             system_prompt = f"""You are {self.character['name']}.
-Personality: {self.character['personality']}
-Role: {self.character['role']}
-Backstory: {self.character['backstory']}
-Stay in character at all times."""
+                            Personality: {self.character['personality']}
+                            Role: {self.character['role']}
+                            Backstory: {self.character['backstory']}
+                            Stay in character at all times."""
             self.history.insert(0, {"role": "system", "content": system_prompt})
 
     def _reload_history(self):
@@ -157,8 +158,6 @@ Stay in character at all times."""
         self.worker.start()
 
     def _on_response(self, reply):
-        # remove "thinking..." message
-        cursor = self.chat_display.textCursor()
         self.chat_display.undo()
 
         self.history.append({"role": "assistant", "content": reply})
@@ -167,6 +166,23 @@ Stay in character at all times."""
         self.send_btn.setEnabled(True)
         self.input_box.setEnabled(True)
         self.input_box.setFocus()
+
+        # speak the response in background
+        self._speak_response(reply)
+
+    def _speak_response(self, text):
+        from voice.tts import speak
+        from PyQt6.QtCore import QThread
+
+        class SpeakWorker(QThread):
+            def __init__(self, text):
+                super().__init__()
+                self.text = text
+            def run(self):
+                speak(self.text)
+
+        self.speak_worker = SpeakWorker(text)
+        self.speak_worker.start()
 
     def _on_error(self, error):
         self._append_message("Error", error)
@@ -177,6 +193,43 @@ Stay in character at all times."""
         from core.storage import save_history
         save_history(self.character["name"], self.history)
         self.close()
+
+    def _start_recording(self):
+        from voice.stt import start_recording
+        self.mic_btn.setProperty("recording", True)
+        self.mic_btn.style().unpolish(self.mic_btn)
+        self.mic_btn.style().polish(self.mic_btn)
+        self.mic_btn.setText("🔴")
+        self.input_box.setPlaceholderText("Recording... release to transcribe")
+        start_recording()
+
+    def _stop_recording(self):
+        from voice.stt import stop_recording
+        from PyQt6.QtCore import QThread, pyqtSignal
+
+        self.mic_btn.setText("⏳")
+        self.input_box.setPlaceholderText("Transcribing...")
+        self.mic_btn.setEnabled(False)
+
+        class TranscribeWorker(QThread):
+            done = pyqtSignal(str)
+            def run(self):
+                text = stop_recording()
+                self.done.emit(text)
+
+        self.transcribe_worker = TranscribeWorker()
+        self.transcribe_worker.done.connect(self._on_transcription)
+        self.transcribe_worker.start()
+
+    def _on_transcription(self, text):
+        self.mic_btn.setText("🎤")
+        self.mic_btn.setProperty("recording", False)
+        self.mic_btn.style().unpolish(self.mic_btn)
+        self.mic_btn.style().polish(self.mic_btn)
+        self.mic_btn.setEnabled(True)
+        self.input_box.setPlaceholderText("Type a message... (Enter to send, Shift+Enter for newline)")
+        if text:
+            self.input_box.setPlainText(text)
 
     def closeEvent(self, event):
         from core.storage import save_history
