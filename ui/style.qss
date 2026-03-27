@@ -1,0 +1,139 @@
+QWidget {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 14px;
+}
+
+QMainWindow {
+    background-color: #1e1e2e;
+}
+
+/* Chat display area */
+QTextEdit#chatDisplay {
+    background-color: #181825;
+    border: 1px solid #313244;
+    border-radius: 10px;
+    padding: 10px;
+    color: #cdd6f4;
+}
+
+/* Input box */
+QTextEdit#inputBox {
+    background-color: #252535;
+    border: 1px solid #313244;
+    border-radius: 10px;
+    padding: 8px;
+    color: #cdd6f4;
+}
+
+QTextEdit#inputBox:focus {
+    border: 1px solid #89b4fa;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #313244;
+    color: #cdd6f4;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+}
+
+QPushButton:hover {
+    background-color: #45475a;
+}
+
+QPushButton:pressed {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+}
+
+QPushButton#sendButton {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    font-weight: bold;
+}
+
+QPushButton#sendButton:hover {
+    background-color: #b4befe;
+}
+
+QPushButton#micButton {
+    background-color: #313244;
+    border-radius: 8px;
+    font-size: 18px;
+}
+
+QPushButton#micButton[recording="true"] {
+    background-color: #f38ba8;
+    color: #1e1e2e;
+}
+
+/* Top bar */
+QLabel#characterLabel {
+    font-size: 16px;
+    font-weight: bold;
+    color: #89b4fa;
+    padding: 4px;
+}
+
+QLabel#roleLabel {
+    font-size: 12px;
+    color: #6c7086;
+    padding: 2px;
+}
+
+/* Scrollbar */
+QScrollBar:vertical {
+    background: #181825;
+    width: 6px;
+    border-radius: 3px;
+}
+
+QScrollBar::handle:vertical {
+    background: #45475a;
+    border-radius: 3px;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* Dialog */
+QDialog {
+    background-color: #1e1e2e;
+}
+
+QLineEdit {
+    background-color: #252535;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 8px;
+    color: #cdd6f4;
+}
+
+QLineEdit:focus {
+    border: 1px solid #89b4fa;
+}
+
+QListWidget {
+    background-color: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 4px;
+}
+
+QListWidget::item {
+    padding: 8px;
+    border-radius: 6px;
+}
+
+QListWidget::item:selected {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+}
+
+QListWidget::item:hover {
+    background-color: #313244;
+}

@@ -1,1 +1,8 @@
+faster-whisper==1.2.1
+numpy==2.4.3
 ollama==0.6.1
+piper-tts==1.4.1
+PyQt6==6.10.2
+PyQt6-Qt6==6.10.2
+PyQt6_sip==13.11.1
+sounddevice==0.5.5
