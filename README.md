@@ -1,31 +1,38 @@
 # OfflinePersona
 
-A private, offline, character-driven AI assistant that runs entirely on your machine. No internet required. No data ever leaves your device.
+A private, offline, character-driven AI assistant with voice input and output.
+Runs entirely on your machine — no internet required, no data ever leaves your device.
+
+---
 
 ## The Problem
 
-Most AI assistants (ChatGPT, Gemini, Copilot) send your conversations to remote servers. This raises serious privacy concerns — sensitive questions, personal data, and confidential work all leave your device. OfflinePersona solves this by running a local AI model with zero cloud dependency.
+Most AI assistants send your conversations to remote servers. OfflinePersona solves this
+by running everything locally — the language model, speech recognition, and text-to-speech
+all run on your machine with zero cloud dependency.
+
+---
 
 ## Features
 
-- 100% offline — no API keys, no internet, no data sent anywhere
-- Create custom characters with a name, personality, role, and backstory
-- The AI stays in character throughout the entire conversation
-- Save and load conversation history per character
-- Resume any previous conversation from where you left off
+- **100% offline** — no API keys, no internet, no data sent anywhere
+- **Custom characters** — define name, personality, role, and backstory
+- **Stays in character** — consistent personality throughout the conversation
+- **Voice input** — hold the mic button and speak, text is auto-transcribed
+- **Voice output** — responses are spoken aloud with markdown cleaned automatically
+- **Persistent history** — save and resume conversations per character
+- **Dark GUI** — clean PyQt6 interface
 
-## How It Works
-```
-You → main.py → chat.py → Ollama (local) → gemma2:2b (on your machine)
-```
-
-Your conversation history is stored locally in the `histories/` folder and never leaves your device.
+---
 
 ## Requirements
 
-- Python 3.x
+- Python 3.10+
 - [Ollama](https://ollama.com) installed and running
-- gemma2:2b model pulled via Ollama
+- `gemma2:2b` model pulled via Ollama
+- 4GB+ RAM recommended
+
+---
 
 ## Setup
 
@@ -38,8 +45,12 @@ cd offline-persona
 **2. Create and activate virtual environment**
 ```bash
 python -m venv venv
-source venv/bin/activate        # bash/zsh
-source venv/bin/activate.fish   # fish shell
+
+# bash/zsh
+source venv/bin/activate
+
+# fish shell
+source venv/bin/activate.fish
 ```
 
 **3. Install dependencies**
@@ -47,44 +58,104 @@ source venv/bin/activate.fish   # fish shell
 pip install -r requirements.txt
 ```
 
-**4. Install Ollama and pull the model**
+**4. Pull the model**
 ```bash
-# Install Ollama from https://ollama.com
 ollama pull gemma2:2b
 ```
 
-**5. Run the app**
+**5. Download Piper voice model**
+```bash
+mkdir -p voice/models
+cd voice/models
+wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+wget https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+cd ../..
+```
+
+**6. Run**
 ```bash
 python main.py
 ```
 
+---
+
 ## Usage
 
-When you run the app you will see a menu to either select an existing character or create a new one. Creating a character looks like this:
-```
-=== Create New Character ===
-Name: Alex
-Personality: friendly, witty, speaks casually
-Role: study buddy
-Backstory: Alex is a 20 year old CS student who loves explaining things simply
-```
+| Action | How |
+|---|---|
+| Send a message | Type in the input box, press Enter |
+| New line in input | Shift + Enter |
+| Voice input | Hold 🎤, speak, release — text auto-fills |
+| Switch character | Click "Switch Character" button |
+| Resume conversation | Select from history list on startup |
+| Exit | Close the window — history saves automatically |
 
-Once a character is selected, you can start chatting. Type `quit` to end the session — your conversation will be saved automatically.
+---
 
 ## Project Structure
 ```
 offline-persona/
-├── main.py          # Entry point and menu system
-├── chat.py          # Ollama conversation logic
-├── character.py     # Create, save, and load characters
-├── storage.py       # Save and load chat history
-├── characters/      # Character definitions (JSON)
-├── histories/       # Saved conversations (JSON, local only)
+├── main.py                  # Entry point
+├── core/
+│   ├── character.py         # Character create/save/load
+│   ├── chat.py              # Ollama communication
+│   └── storage.py           # History save/load
+├── ui/
+│   ├── main_window.py       # Chat window (PyQt6)
+│   ├── character_dialog.py  # Character selection dialog
+│   └── style.qss            # Dark theme stylesheet
+├── voice/
+│   ├── stt.py               # Speech-to-text (faster-whisper)
+│   ├── tts.py               # Text-to-speech (Piper)
+│   └── models/              # Voice model files (not in git)
+├── characters/              # Character JSON files
+├── histories/               # Saved conversations (not in git)
 └── requirements.txt
 ```
 
+---
+
+## Troubleshooting
+
+**Ollama not running**
+```bash
+ollama serve
+ollama list   # verify gemma2:2b is available
+```
+
+**No audio output**
+```bash
+python -c "import sounddevice as sd; print(sd.query_devices())"
+```
+
+**Fish shell venv activation**
+```bash
+source venv/bin/activate.fish
+```
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| Language model | Ollama + gemma2:2b |
+| GUI | PyQt6 |
+| Speech-to-text | faster-whisper (tiny, CPU) |
+| Text-to-speech | Piper (en_US-lessac-medium) |
+| Audio | sounddevice + numpy |
+| Storage | JSON (local files) |
+
+---
+
 ## Future Scope
 
-- Voice input and output using local STT/TTS (Whisper + Piper)
-- Web UI instead of terminal
-- Character memory that persists facts across sessions
+- Character memory across sessions
+- Multiple TTS voices per character
+- Streaming token-by-token responses
+- Export conversations to PDF
+- Multi-language support
+
+---
+
+*Built with privacy in mind. All processing is local. Nothing leaves your device.*

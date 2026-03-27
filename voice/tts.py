@@ -4,6 +4,7 @@ import re
 import numpy as np
 import sounddevice as sd
 from piper.voice import PiperVoice
+from threading import Lock
 
 MODEL_PATH = "voice/models/en_US-lessac-medium.onnx"
 
@@ -14,9 +15,10 @@ print("Piper voice model loaded.")
 # Piper's native output rate
 PIPER_RATE = 22050
 OUTPUT_RATE = None
+_tts_lock = Lock()
+_synthesis_cache = {}
 
 def find_best_sample_rate():
-    """Find best sample rate with minimal testing"""
     quick_rates = [44100, 48000]
     for rate in quick_rates:
         try:
@@ -37,230 +39,156 @@ def find_best_sample_rate():
 OUTPUT_RATE = find_best_sample_rate()
 print(f"Using {OUTPUT_RATE} Hz")
 
+def remove_emojis(text):
+    """Remove all emojis and special Unicode characters"""
+    # Comprehensive emoji removal
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags
+        "\U00002702-\U000027B0"
+        "\U000024C2-\U0001F251"
+        "\U0001F900-\U0001F9FF"  # supplemental
+        "\U0001FA70-\U0001FAFF"  # more emojis
+        "\U00002500-\U00002BEF"  # various symbols
+        "\U0000FE0F"              # variation selector
+        "]+",
+        flags=re.UNICODE
+    )
+    return emoji_pattern.sub(r'', text)
+
 def clean_text_for_speech(text):
     """
-    Convert markdown/plain text to natural speech-friendly format.
-    Removes special characters and adds natural pauses.
+    Clean text for speech - removes ALL markdown, emojis, special chars
     """
     if not text:
         return ""
     
-    # Remove markdown formatting
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **bold** -> bold
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *italic* -> italic
-    text = re.sub(r'\_\_([^_]+)\_\_', r'\1', text)  # __bold__ -> bold
-    text = re.sub(r'\_([^_]+)\_', r'\1', text)      # _italic_ -> italic
-    text = re.sub(r'`([^`]+)`', r'\1', text)        # `code` -> code
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)  # [text](url) -> text
-    text = re.sub(r'#{1,6}\s+', '', text)           # # Headers -> Headers
+    # Remove emojis first
+    text = remove_emojis(text)
     
-    # Remove special characters but keep sentence structure
-    text = re.sub(r'[\\/*_`~\[\]\(\)]', '', text)   # Remove remaining markdown chars
-    text = re.sub(r'\|', ' ', text)                 # Table separators -> space
-    text = re.sub(r'\-{3,}', ' ', text)             # --- -> pause
-    text = re.sub(r'_{3,}', ' ', text)              # ___ -> pause
+    # Remove markdown
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'\_\_([^_]+)\_\_', r'\1', text)
+    text = re.sub(r'\_([^_]+)\_', r'\1', text)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    text = re.sub(r'#{1,6}\s+', '', text)
+    text = re.sub(r'[\\/*_`~\[\]\(\)]', '', text)
+    text = re.sub(r'\|', ' ', text)
+    text = re.sub(r'\-{3,}', ' ', text)
     
-    # Clean up multiple spaces and newlines
-    text = re.sub(r'\n\s*\n', '. ', text)           # Double newline -> period + space
-    text = re.sub(r'\n', ' ', text)                 # Single newline -> space
-    text = re.sub(r'\s+', ' ', text)                # Multiple spaces -> single space
+    # Remove any remaining non-ASCII characters
+    text = re.sub(r'[^\x00-\x7F]+', '', text)
     
-    # Add natural pauses for punctuation
-    text = re.sub(r'\.\.\.', '... ', text)          # Ellipsis with pause
-    text = re.sub(r'!', '! ', text)                 # Exclamation with pause
-    text = re.sub(r'\?', '? ', text)                # Question with pause
-    text = re.sub(r',', ', ', text)                 # Comma with pause
-    text = re.sub(r';', '; ', text)                 # Semicolon with pause
-    text = re.sub(r':', ': ', text)                 # Colon with pause
+    # Clean spaces
+    text = re.sub(r'\n\s*\n', '. ', text)
+    text = re.sub(r'\n', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
     
-    # Convert common abbreviations to spoken form
+    # Add natural pauses
+    text = re.sub(r'\.\.\.', '... ', text)
+    text = re.sub(r'!', '! ', text)
+    text = re.sub(r'\?', '? ', text)
+    text = re.sub(r',', ', ', text)
+    
+    # Common abbreviations
     abbreviations = {
         r'\bUN\b': 'United Nations',
         r'\bUS\b': 'U S',
         r'\bUSA\b': 'U S A',
         r'\bUK\b': 'United Kingdom',
-        r'\bUAE\b': 'U A E',
         r'\bAI\b': 'A I',
         r'\bCEO\b': 'C E O',
         r'\bCFO\b': 'C F O',
-        r'\bCTO\b': 'C T O',
-        r'\bGDP\b': 'G D P',
-        r'\bNATO\b': 'N A T O',
-        r'\bWHO\b': 'W H O',
-        r'\bIMF\b': 'I M F',
-        r'\bUNESCO\b': 'Yoo Ness Co',
-        r'\bNASA\b': 'Na Sa',
-        r'\bMIT\b': 'M I T',
-        r'\bPhD\b': 'P H D',
         r'\bDr\.?\b': 'Doctor',
         r'\bMr\.?\b': 'Mister',
-        r'\bMs\.?\b': 'Miss',
-        r'\bMrs\.?\b': 'Missus',
-        r'\bSt\.?\b': 'Saint',
-        r'\bAve\.?\b': 'Avenue',
-        r'\bRd\.?\b': 'Road',
-        r'\bBlvd\.?\b': 'Boulevard',
     }
-    
     for pattern, replacement in abbreviations.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     
-    # Clean up extra spaces and strip
-    text = re.sub(r'\s+', ' ', text)
-    text = text.strip()
+    # Final cleanup
+    text = re.sub(r'\s+', ' ', text).strip()
     
-    # Ensure sentences end with proper punctuation
+    # Ensure sentences end properly
     if text and text[-1] not in '.!?':
         text += '.'
     
     return text
 
-def add_emotional_tone(text):
-    """
-    Add natural emotional cues to the text for better delivery.
-    This modifies the text slightly to help TTS sound more natural.
-    """
-    # Add natural pauses for emphasis
-    text = re.sub(r'\!+', '! ', text)
-    text = re.sub(r'\?+', '? ', text)
+def synthesize_audio(text):
+    """Synthesize audio with caching"""
+    # Clean text
+    cleaned = clean_text_for_speech(text)
     
-    # Convert emojis to words
-    emoji_map = {
-        '🌎': 'planet Earth',
-        '🌍': 'planet Earth',
-        '🌏': 'planet Earth',
-        '😊': 'smiley face',
-        '😢': 'sad',
-        '😂': 'laughing',
-        '🤔': 'thinking',
-        '👀': 'look',
-        '💪': 'strong',
-        '🧠': 'brain',
-        '✨': 'sparkle',
-    }
+    # Skip empty
+    if not cleaned.strip():
+        return np.array([], dtype=np.float32)
     
-    for emoji, word in emoji_map.items():
-        text = text.replace(emoji, f' {word} ')
+    # Check cache
+    if cleaned in _synthesis_cache:
+        return _synthesis_cache[cleaned]
     
-    # Add slight pauses around parenthetical thoughts
-    text = re.sub(r'\(([^)]+)\)', r', \1, ', text)
+    # Synthesize
+    wav_io = io.BytesIO()
+    wav_file = wave.open(wav_io, "wb")
+    voice.synthesize_wav(cleaned, wav_file)
+    wav_file.close()
     
-    # Add natural breaks for lists (bullet points become pauses)
-    text = re.sub(r'[\*\-•]\s+', '... ', text)
+    wav_io.seek(0)
+    with wave.open(wav_io, "rb") as f:
+        frames = f.readframes(f.getnframes())
+        original_rate = f.getframerate()
     
-    return text
+    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    
+    # Resample if needed
+    if original_rate != OUTPUT_RATE:
+        ratio = OUTPUT_RATE / original_rate
+        target_length = int(len(audio) * ratio)
+        indices = np.linspace(0, len(audio) - 1, target_length)
+        audio = np.interp(indices, np.arange(len(audio)), audio).astype(np.float32)
+    
+    # Cache
+    _synthesis_cache[cleaned] = audio
+    
+    return audio
 
-def optimize_audio(audio, original_rate, target_rate):
-    """Optimized audio resampling"""
-    if original_rate == target_rate:
-        return audio
-    
-    ratio = target_rate / original_rate
-    target_length = int(len(audio) * ratio)
-    indices = np.linspace(0, len(audio) - 1, target_length)
-    return np.interp(indices, np.arange(len(audio)), audio).astype(np.float32)
-
-def speak(text):
-    """
-    Speak text naturally - cleans markdown and adds natural speech patterns
-    """
+def speak(text, async_play=False):
+    """Speak text - caches repeated phrases"""
     if not text or not text.strip():
         return
     
     try:
-        # Clean and prepare text for natural speech
-        cleaned = clean_text_for_speech(text)
-        cleaned = add_emotional_tone(cleaned)
+        audio = synthesize_audio(text)
+        if len(audio) == 0:
+            return
         
-        # Optional: Print what's actually being spoken (for debugging)
-        # print(f"[TTS Speaking]: {cleaned}")
-        
-        # Synthesize
-        wav_io = io.BytesIO()
-        wav_file = wave.open(wav_io, "wb")
-        voice.synthesize_wav(cleaned, wav_file)
-        wav_file.close()
-        
-        # Read audio
-        wav_io.seek(0)
-        with wave.open(wav_io, "rb") as f:
-            frames = f.readframes(f.getnframes())
-            original_rate = f.getframerate()
-        
-        # Convert to float32
-        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-        
-        # Resample if needed
-        if original_rate != OUTPUT_RATE:
-            audio = optimize_audio(audio, original_rate, OUTPUT_RATE)
-        
-        # Play
-        sd.play(audio, samplerate=OUTPUT_RATE, blocking=True)
-        
+        with _tts_lock:
+            sd.play(audio, samplerate=OUTPUT_RATE, blocking=not async_play)
+            if not async_play:
+                sd.wait()
     except Exception as e:
         print(f"Error in speak: {e}")
 
-def speak_with_emotion(text, emotion="neutral"):
-    """
-    Enhanced version with emotion hints.
-    emotion can be: "neutral", "excited", "worried", "thoughtful", "emphatic"
-    """
-    if not text or not text.strip():
-        return
-    
-    try:
-        cleaned = clean_text_for_speech(text)
-        
-        # Add emotional modifiers based on context
-        if emotion == "excited":
-            # Add exclamation emphasis
-            cleaned = cleaned.replace('.', '!')
-            if not cleaned.endswith('!'):
-                cleaned += '!'
-        elif emotion == "worried":
-            # Add thoughtful pauses
-            cleaned = cleaned.replace('.', '... ')
-        elif emotion == "thoughtful":
-            # Add contemplative phrasing
-            cleaned = f"Hmm... {cleaned}"
-        elif emotion == "emphatic":
-            # Add emphasis words
-            cleaned = f"I must say, {cleaned}"
-        
-        cleaned = add_emotional_tone(cleaned)
-        
-        wav_io = io.BytesIO()
-        wav_file = wave.open(wav_io, "wb")
-        voice.synthesize_wav(cleaned, wav_file)
-        wav_file.close()
-        
-        wav_io.seek(0)
-        with wave.open(wav_io, "rb") as f:
-            frames = f.readframes(f.getnframes())
-            original_rate = f.getframerate()
-        
-        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-        
-        if original_rate != OUTPUT_RATE:
-            audio = optimize_audio(audio, original_rate, OUTPUT_RATE)
-        
-        sd.play(audio, samplerate=OUTPUT_RATE, blocking=True)
-        
-    except Exception as e:
-        print(f"Error in speak_with_emotion: {e}")
+def preload_phrases(phrases):
+    """Pre-synthesize common phrases"""
+    for phrase in phrases:
+        synthesize_audio(phrase)
+    print(f"Preloaded {len(phrases)} phrases")
 
-# Test function
-def test_tts():
-    """Test the TTS with natural speech"""
-    test_text = """
-    Hey there! 👋 I'm your **offline assistant**. 
-    I can talk naturally now, without reading *asterisks* or weird symbols.
-    
-    Let me ask you something... How can I help you today?
-    """
-    print("Testing TTS with natural speech...")
-    speak(test_text)
-    print("Done!")
+def clear_cache():
+    global _synthesis_cache
+    _synthesis_cache.clear()
+    print("TTS cache cleared")
+
+def get_cache_stats():
+    return {"cached_phrases": len(_synthesis_cache), "output_rate": OUTPUT_RATE}
 
 if __name__ == "__main__":
-    test_tts()
+    common_phrases = ["Hello.", "Yes.", "No.", "Thank you.", "I'm sorry.", "Please wait."]
+    preload_phrases(common_phrases)
+    print("TTS ready!")
